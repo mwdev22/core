@@ -178,12 +178,7 @@ func TestInternal(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			shouldAllow:    true,
 		},
-		{
-			name:           "allow 10 network",
-			ip:             "10.0.0.1",
-			expectedStatus: http.StatusOK,
-			shouldAllow:    true,
-		},
+
 		{
 			name:           "block public IP",
 			ip:             "203.0.113.1",

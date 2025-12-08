@@ -11,14 +11,21 @@ type ApiError struct {
 	StatusCode int
 	Msg        string
 	Log        string
+	Data       any
 }
 
 func (e ApiError) Error() string {
 	return e.Msg
 }
 
-func (e ApiError) Map() map[string]string {
-	return map[string]string{
+func (e ApiError) Map() map[string]any {
+	if e.Data != nil {
+		return map[string]any{
+			"error": e.Error(),
+			"data":  e.Data,
+		}
+	}
+	return map[string]any{
 		"error": e.Error(),
 	}
 }
@@ -105,5 +112,22 @@ func ObjectNotFound(id string, name string) ApiError {
 		StatusCode: http.StatusNotFound,
 		Msg:        fmt.Sprintf("%s with ID %s not found", name, id),
 		Log:        "",
+	}
+}
+
+func ValidationError(err error, data any) ApiError {
+	return ApiError{
+		StatusCode: http.StatusBadRequest,
+		Msg:        "validation error",
+		Log:        err.Error(),
+		Data:       data,
+	}
+}
+
+func InvalidBody(validationErrs any) ApiError {
+	return ApiError{
+		StatusCode: http.StatusBadRequest,
+		Msg:        "invalid request body",
+		Data:       validationErrs,
 	}
 }
