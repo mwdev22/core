@@ -242,7 +242,8 @@ func TestInternal(t *testing.T) {
 }
 
 func TestLogger(t *testing.T) {
-	handler := Logger(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	loggerMiddleware := Logger(nil)
+	handler := loggerMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("logged"))
 	}))
