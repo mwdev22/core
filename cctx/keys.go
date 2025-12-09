@@ -6,6 +6,8 @@ type ContextKey string
 
 const (
 	RealIpKey ContextKey = "realIP"
+	Limit     ContextKey = "limit"
+	Offset    ContextKey = "offset"
 )
 
 func RealIP(ctx context.Context) string {

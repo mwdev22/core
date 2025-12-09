@@ -3,8 +3,8 @@ package middleware
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,53 +16,85 @@ import (
 	"github.com/mwdev22/rest/utils/errs"
 )
 
-type HandlerWithErr func(w http.ResponseWriter, r *http.Request) error
+type ApiHandler func(w http.ResponseWriter, r *http.Request) error
+type MiddlewareToChain func(next http.Handler) http.Handler
 
-const (
-	colorReset  = "\033[0m"
-	colorRed    = "\033[31m"
-	colorGreen  = "\033[32m"
-	colorYellow = "\033[33m"
-	colorBlue   = "\033[34m"
-	colorCyan   = "\033[36m"
-)
-
-func colorMethod(method string) string {
-	switch method {
-	case "GET":
-		return colorBlue + method + colorReset
-	case "POST":
-		return colorGreen + method + colorReset
-	case "PUT":
-		return colorYellow + method + colorReset
-	case "DELETE":
-		return colorRed + method + colorReset
-	case "PATCH":
-		return colorCyan + method + colorReset
-	case "OPTIONS":
-		return colorCyan + method + colorReset
-	default:
-		return method
+// allows handlers to return errors
+func Wrap(final ApiHandler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := final(w, r); err != nil {
+			var e errs.ApiError
+			l := logging.FromContext(r.Context())
+			if errors.As(err, &e) {
+				jsonutil.Write(w, e.StatusCode, e.Map())
+				l.Printf("%sAPI ERROR%s: %s", colorRed, colorReset, e.Log)
+			} else {
+				jsonutil.Write(w, http.StatusInternalServerError, map[string]string{
+					"error": "internal server error",
+				})
+				l.Printf("%sUNKNOWN ERROR%s: %s", colorRed, colorReset, err.Error())
+			}
+		}
 	}
 }
 
-func colorStatus(status int) string {
-	statusStr := fmt.Sprintf("%v", status)
-	switch {
-	case status >= 200 && status < 300:
-		return colorGreen + statusStr + colorReset
-	case status >= 300 && status < 400:
-		return colorYellow + statusStr + colorReset
-	case status >= 400 && status < 500:
-		return colorRed + statusStr + colorReset
-	case status >= 500:
-		return colorRed + statusStr + colorReset
-	default:
-		return statusStr
+func Pagination(defaultLimit int, maxLimit int) MiddlewareToChain {
+	const minLimit = 1
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				pageQ := r.URL.Query().Get("page")
+				limitQ := r.URL.Query().Get("limit")
+				limit, offset := defaultLimit, 0
+
+				if limitQ != "" {
+					l, err := strconv.Atoi(limitQ)
+					if err != nil {
+						jsonutil.Write(w, http.StatusBadRequest, map[string]string{
+							"error": "limit must be a number",
+						})
+						return
+					}
+					if l < minLimit {
+						jsonutil.Write(w, http.StatusBadRequest, map[string]string{
+							"error": "limit must be at least 1",
+						})
+						return
+					}
+					if l > maxLimit {
+						jsonutil.Write(w, http.StatusBadRequest, map[string]string{
+							"error": "limit must not exceed 100",
+						})
+						return
+					}
+					limit = l
+				}
+
+				if pageQ != "" {
+					p, err := strconv.Atoi(pageQ)
+					if err != nil {
+						jsonutil.Write(w, http.StatusBadRequest, map[string]string{
+							"error": "page must be a number",
+						})
+						return
+					}
+					if p < 1 {
+						jsonutil.Write(w, http.StatusBadRequest, map[string]string{
+							"error": "page must be at least 1",
+						})
+						return
+					}
+					offset = (p - 1) * limit
+				}
+
+				ctx := context.WithValue(r.Context(), cctx.Offset, offset)
+				ctx = context.WithValue(ctx, cctx.Limit, limit)
+				next.ServeHTTP(w, r.WithContext(ctx))
+			})
 	}
 }
 
-func Logger(l logging.Logger) func(next http.Handler) http.Handler {
+func Logger(l logging.Logger) MiddlewareToChain {
 	if l == nil {
 		l = logging.DefaultLogger()
 	}
@@ -83,7 +115,7 @@ func Logger(l logging.Logger) func(next http.Handler) http.Handler {
 		})
 	}
 }
-func RateLimit(limit int, windowLength time.Duration) func(next http.Handler) http.Handler {
+func RateLimit(limit int, windowLength time.Duration) MiddlewareToChain {
 	return func(next http.Handler) http.Handler {
 		return httprate.LimitByRealIP(limit, windowLength)(next)
 	}
@@ -91,24 +123,6 @@ func RateLimit(limit int, windowLength time.Duration) func(next http.Handler) ht
 
 func Recoverer(next http.Handler) http.Handler {
 	return middleware.Recoverer(next)
-}
-
-func Wrap(final HandlerWithErr) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := final(w, r); err != nil {
-			var e errs.ApiError
-			l := logging.FromContext(r.Context())
-			if errors.As(err, &e) {
-				jsonutil.Write(w, e.StatusCode, e.Map())
-				l.Printf("%sAPI ERROR%s: %s", colorRed, colorReset, e.Log)
-			} else {
-				jsonutil.Write(w, http.StatusInternalServerError, map[string]string{
-					"error": "internal server error",
-				})
-				l.Printf("%sUNKNOWN ERROR%s: %s", colorRed, colorReset, err.Error())
-			}
-		}
-	}
 }
 
 func RealIP(next http.Handler) http.Handler {

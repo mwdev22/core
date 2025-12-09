@@ -16,7 +16,7 @@ import (
 func TestWrap(t *testing.T) {
 	tests := []struct {
 		name           string
-		handler        HandlerWithErr
+		handler        ApiHandler
 		expectedStatus int
 		expectedBody   string
 		checkJSON      bool
